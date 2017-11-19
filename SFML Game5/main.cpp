@@ -3,11 +3,20 @@
 #include"Physics.h"
 #include<thread>
 #include<sstream>
+#include<time.h>
+#include<string>
+#include<conio.h>
+#include"SerialClass.h"
 
 #define centerx 600
 #define centery 400
 using namespace sf;
 using namespace std;
+
+char incomingData[256] = "";
+int dataLength = 255;
+int readResult = 0;
+Serial* sp=new Serial("\\\\.\\COM6");
 
 int initx = 200;
 int inity = 600;
@@ -15,36 +24,24 @@ float angle=0;
 float power=0;
 int score = 0;
 int ballstat = 1;
+bool isalive = true;
+int boxhp=0;
+int bv=5;
+int tmp=0;
+int best=0;
+bool changecmd=false;
+bool shootcmd = false;
+Circle cira;
 
 
-
-void snd()
-{
-	int s1[] = {7,6,5,3,5,0,6,5,3,1,3,0,5,3,1,-1,1,0};
-	int ds1[] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,4};
-	int i = 0;
-	while (1)
-	{
-		if (s1[i % 17] != 0)
-		{
-			_beep(powf(1.059463,s1[i%17]-1)*523,ds1[i%17]*1000);
-		}
-		else
-		{
-			_beep(0, ds1[i % 17] * 1000);
-		}
-		i++;
-	}
-	
-}
-
-
+void updateSerial();
 
 
 
 
 int main()
 {
+
 
 ////Define Window size
 	RenderWindow window(VideoMode(2*centerx,2*centery), "Polka Shoot!");
@@ -57,7 +54,7 @@ int main()
 	sys1.initpos(0, 750);
 
 ////Define circle a
-	Circle cira;
+	
 
 	cira.setRadius(10);
 	cira.include(sys1);
@@ -81,6 +78,9 @@ int main()
 	Int32 tmis = t.asMilliseconds();
 	float tm = tmis / 1000;
 
+////DEFINE RAND()////////
+
+	srand(time(NULL));
 
 
 
@@ -203,6 +203,24 @@ int main()
 	how.setOrigin(midpoint, 0);
 	how.setPosition(centerx / 2, 485);
 
+	Text bestever;
+	bestever.setString("Best ever:");
+	bestever.setFont(normal);
+	bestever.setColor(Color(20,180,225,255));
+	bestever.setCharacterSize(75);
+	midpoint = bestever.getGlobalBounds().width / 2;
+	bestever.setOrigin(midpoint, 0);
+	bestever.setPosition(a.getPosition().x-300, a.getPosition().y -350);
+
+	Text bscore;
+	bscore.setString("Best ever:");
+	bscore.setFont(normal);
+	bscore.setColor(Color(200, 74, 66, 255));
+	bscore.setCharacterSize(90);
+	midpoint = bscore.getGlobalBounds().width / 2;
+	bscore.setOrigin(midpoint, 0);
+	bscore.setPosition(a.getPosition().x - 300, a.getPosition().y - 200);
+
 
 ////ENDDEF/////////////////////////////////////////
 
@@ -268,22 +286,44 @@ press 'ESC' or 'Space' to return to main page
 	tscore.setPosition(50, 2 * centery - 45);
 
 	RectangleShape box;
-	Gnd.setFillColor(Color(0x505050ff));
-	Gnd.setSize(Vector2f(100,100));
-	Gnd.setPosition(0,70);
+	box.setFillColor(Color(0x505050ff));
+	box.setSize(Vector2f(100,100));
+	box.setPosition(100,400);
+
+	Text bhp;
+	bhp.setString(to_string(boxhp));
+	bhp.setFont(normal);
+	bhp.setColor(Color(222,222,222,255));
+	bhp.setCharacterSize(40);
+	bhp.setOrigin(bhp.getLocalBounds().width / 2, bhp.getLocalBounds().height / 2);
+	bhp.setPosition(box.getPosition().x+50, box.getPosition().y + 50);
+
+	Text result;
+	result.setString("Score: " + to_string(score));
+	result.setFont(bold);
+	result.setCharacterSize(100);
+	
+	result.setColor(Color(35, 170, 170, 225));
 
 	
-
+	
 ////ENDDEF/////////////////////////////////////////
 
+//// RUN UPDATE THREAD///////////////////////////////
+
+	thread(updateSerial).detach();
+/////////////////////////////////////////////////////
 
 
 
+
+	
 	goto mainpage;
 
 
 
-////    MAIN PAGE LOOP      ///////////////////////
+////    MAIN PAGE LOOP      //////////
+/////////////
 mainpage:
 	int i = 0;
 	bool flip=0;
@@ -386,6 +426,10 @@ mainpage:
 		}
 		cirm.v.x /= 1.5;
 		cirm.setRadius(10 + i/5);
+		bscore.setString(to_string(best));
+		midpoint = bscore.getGlobalBounds().width / 2;
+		bscore.setOrigin(midpoint, 0);
+		bscore.setPosition(a.getPosition().x - 300, a.getPosition().y - 200);
 
 		switch (selectedstate)
 		{
@@ -409,14 +453,14 @@ mainpage:
 		}
 		
 		window.clear();
-
 		window.draw(a);
 		window.draw(cirm);
 		window.draw(polka);
 		window.draw(play);
 		window.draw(how);
 		window.draw(exit);
-
+		window.draw(bestever);
+		window.draw(bscore);
 		window.display();
 	}
 	
@@ -449,8 +493,69 @@ pause:
 					goto game;
 					break;
 				case 1:
+					isalive = true;
+					score = 0;
+					boxhp = 0;
+					tmp = 0;
+					bv = 5;
+					ballstat = 1;
+					switch (ballstat)
+					{
+					default:
+						break;
+					case 1:
+						cira.m = 1;
+						cira.setFillColor(Color(0x73d7d7ff));
+						compass.setFillColor(Color(0x73d7d7ff));
+						break;
+					case 2:
+						cira.m = 5;
+						cira.setFillColor(Color(0xFDFD97FF));
+						compass.setFillColor(Color(0xFDFD97FF));
+						break;
+
+					case 3:
+						cira.m = 10;
+						cira.setFillColor(Color(0xfa8072ff));
+						compass.setFillColor(Color(0xfa8072ff));
+						break;
+					}
+					cira.setRadius(10 * ballstat);
+					cira.ref = centery * 2 - (50 + 2 * cira.getRadius());
+					cira.setPosition(0, cira.ref);
+					goto game;
 					break;
 				case 2:
+					isalive = true;
+					score = 0;
+					boxhp = 0;
+					tmp = 0;
+					bv = 5;
+					ballstat = 1;
+					switch (ballstat)
+					{
+					default:
+						break;
+					case 1:
+						cira.m = 1;
+						cira.setFillColor(Color(0x73d7d7ff));
+						compass.setFillColor(Color(0x73d7d7ff));
+						break;
+					case 2:
+						cira.m = 5;
+						cira.setFillColor(Color(0xFDFD97FF));
+						compass.setFillColor(Color(0xFDFD97FF));
+						break;
+
+					case 3:
+						cira.m = 10;
+						cira.setFillColor(Color(0xfa8072ff));
+						compass.setFillColor(Color(0xfa8072ff));
+						break;
+					}
+					cira.setRadius(10 * ballstat);
+					cira.ref = centery * 2 - (50 + 2 * cira.getRadius());
+					cira.setPosition(0, cira.ref);
 					goto mainpage;
 					break;
 				case 3:
@@ -574,118 +679,125 @@ how:
 
 ////    GAME PAGE LOOP      ///////////////////////
 game:
-	compass.setFillColor(Color(0x73d7d7ff));
+	compass.setFillColor(cira.getFillColor());
 	while (window.isOpen())
 	{
-		Event event;
-		while (window.pollEvent(event))
+		if (isalive)
 		{
-			// Close window: exit
-			if (event.type == Event::Closed)
-				window.close();
-
-			if (Keyboard::isKeyPressed(Keyboard::A))
-			{
-				cira.v.x -= 25;
-				if (cira.v.x < -150)
-				{
-					cira.v.x = -150;
-				}
-				cout << "a\n";
-			}
-			if (Keyboard::isKeyPressed(Keyboard::S))
-			{
-				cira.v.y -= 50;
-				if (cira.v.y < -50)
-				{
-					cira.v.y = -50;
-				}
-				cout << "s\n";
-			}
-			if (Keyboard::isKeyPressed(Keyboard::W))
-			{
-				cira.v.y +=200;
-				if (cira.v.y > 200)
-				{
-					cira.v.y = 200;
-				}
-				cout << "w\n";
-			}
-			if (Keyboard::isKeyPressed(Keyboard::D))
-			{
-				cira.v.x += 25;
-				if (cira.v.x > 150)
-				{
-					cira.v.x = 150;
-				}
-				cout << "d\n";
-			}
 			
-
-			if (Keyboard::isKeyPressed(Keyboard::L))
+			Event event;
+			while (window.pollEvent(event))
 			{
+				// Close window: exit
+				if (event.type == Event::Closed)
+					window.close();
+
+				if (Keyboard::isKeyPressed(Keyboard::A))
+				{
+					cira.v.x -= 25;
+					if (cira.v.x < -150)
+					{
+						cira.v.x = -150;
+					}
+					cout << "a\n";
+				}
+				if (Keyboard::isKeyPressed(Keyboard::S))
+				{
+					cira.v.y -= 50;
+					if (cira.v.y < -50)
+					{
+						cira.v.y = -50;
+					}
+					cout << "s\n";
+				}
+				if (Keyboard::isKeyPressed(Keyboard::W))
+				{
+					cira.v.y += 200;
+					if (cira.v.y > 200)
+					{
+						cira.v.y = 200;
+					}
+					cout << "w\n";
+				}
+				if (Keyboard::isKeyPressed(Keyboard::D))
+				{
+					cira.v.x += 25;
+					if (cira.v.x > 150)
+					{
+						cira.v.x = 150;
+					}
+					cout << "d\n";
+				}
+
+
+				if (Keyboard::isKeyPressed(Keyboard::L))
+				{
+
+
+					cira.v.x = 0;
+					cira.setPosition(0, 600);
+
+				}
+				if (Keyboard::isKeyPressed(Keyboard::N))
+				{
+			
+				}
+
+				if (Keyboard::isKeyPressed(Keyboard::T))
+				{
+					angle += 1;
+					cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower =" << power << endl;
+
+				}
+				if (Keyboard::isKeyPressed(Keyboard::G))
+				{
+					angle -= 1;
+					cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower =" << power << endl;
+
+				}
+
+				if (Keyboard::isKeyPressed(Keyboard::J))
+				{
+					power += 10;
+					cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower =" << power << endl;
+
+
+				}
+				if (Keyboard::isKeyPressed(Keyboard::H))
+				{
+					power -= 10;
+					cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower =" << power << endl;
+
+				}
+
 				
-				
-				cira.v.x = 0;
-				cira.setPosition(0, 600);
+				if (Keyboard::isKeyPressed(Keyboard::Escape))
+				{
+					sleep(milliseconds(200));
+					goto pause;
+
+
+				}
+
+
 
 			}
-			if (Keyboard::isKeyPressed(Keyboard::N))
+			if (Keyboard::isKeyPressed(Keyboard::Space) || shootcmd)
 			{
-				Circle a;
-				a.setRadius(20);
-				a.include(sys1);
-				a.goinit();
-				a.v.x = 0;
-				a.m = 2;
-//				va.push_back(a);
-//				va[va.size()-1].setPosition(100, 100);
-//				cout << va.size();
-//				sleep(milliseconds(200));
-				
-			}
 
-			if (Keyboard::isKeyPressed(Keyboard::T))
-			{
-				angle += 1;
-				cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower =" << power << endl;
-
-			}
-			if (Keyboard::isKeyPressed(Keyboard::G))
-			{
-				angle -= 1;
-				cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower ="<<power<<endl;
-
-			}
-
-			if (Keyboard::isKeyPressed(Keyboard::J))
-			{
-				power += 10;
-				cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower =" << power << endl;
-				
-
-			}
-			if (Keyboard::isKeyPressed(Keyboard::H))
-			{
-				power -= 10;
-				cout << "angle= " << angle << "deg <> " << angle*0.0174532925 << " rads\nPower =" << power << endl;
-
-			}
-
-			if(Keyboard::isKeyPressed(Keyboard::Space))
-			{
-				
 				cira.v.x += power*cosf(angle*0.0174532925);
 				cira.v.y += power*sinf(angle*0.0174532925);
 				cout << cira.v.x << " " << cira.v.y << endl;
 				angle = 0;
 				power = 0;
+				shootcmd = false;
 			}
-			if (Keyboard::isKeyPressed(Keyboard::K))
+			if (Keyboard::isKeyPressed(Keyboard::K) || changecmd)
 			{
+				changecmd = false;
 				sleep(milliseconds(100));
 				ballstat = ballstat % 3;
-				ballstat += 1; 
+				ballstat += 1;
 				switch (ballstat)
 				{
 				default:
@@ -700,70 +812,283 @@ game:
 					cira.setFillColor(Color(0xFDFD97FF));
 					compass.setFillColor(Color(0xFDFD97FF));
 					break;
-					
+
 				case 3:
 					cira.m = 10;
 					cira.setFillColor(Color(0xfa8072ff));
 					compass.setFillColor(Color(0xfa8072ff));
 					break;
 				}
-				cira.setRadius(10*ballstat);
+				cira.setRadius(10 * ballstat);
 				cira.ref = centery * 2 - (50 + 2 * cira.getRadius());
-				
+
 			}
-			if (Keyboard::isKeyPressed(Keyboard::Escape))
+
+			cira.update();
+
+			if (cira.p().x <= 0)
 			{
-				sleep(milliseconds(200));
-				goto pause;
-				
+				cira.setPosition(0, cira.getPosition().y);
+				cira.v.x *= -1;
+			}
+			if (cira.p().x + cira.getRadius() * 2 >= 2 * centerx)
+			{
+				cira.setPosition(2 * centerx - cira.getRadius() * 2, cira.getPosition().y);
+				cira.v.x *= -1;
+			}
+			if (cira.p().y <= 0)
+			{
+				cira.setPosition(cira.getPosition().x, 0);
+				cira.v.y *= -1;
+			}
 
+			if (cira.isCollide(box))
+			{
+
+				if (cira.p().y > box.getPosition().y)
+				{
+					cira.setPosition(cira.getPosition().x, box.getPosition().y + box.getLocalBounds().height);
+					cira.v.y *= -1;
+				}
+				else if (cira.p().y <= box.getPosition().y)
+				{
+					cout << "collide";
+					cira.setPosition(cira.p().x, box.getPosition().y - 2 * cira.getRadius());
+					cira.v.y *= -1;
+				}
+				else if (cira.p().x < box.getPosition().x)
+				{
+					cira.setPosition(box.getPosition().x - 2 * cira.getRadius(), cira.getPosition().y);
+					cira.v.x *= -1;
+				}
+				else if (cira.p().x > box.getPosition().x)
+				{
+					cira.setPosition(box.getPosition().x + box.getLocalBounds().width, cira.getPosition().y);
+					cira.v.x *= -1;
+				}
+				boxhp -= cira.m;
+				score += cira.m;
 			}
 
 
+			compass.setRotation(-angle);
+			compass.setSize(Vector2f(20 + power*0.5, 2));
+			compass.setPosition(cira.getPosition().x + cira.getRadius(), cira.getPosition().y + cira.getRadius());
+
+			ststat.setString("Power: " + to_string((int)power) + " Angle: " + to_string((int)(angle)) + "   ");
+			tscore.setString("Score: " + to_string(score));
+
+			box.setPosition(box.getPosition().x + (bv * 0.1), box.getPosition().y);
+			if (box.getPosition().x >= 2 * centerx)
+			{
+				cout << "out";
+				isalive = false;
+			}
+			if (boxhp == 0)
+			{
+				box.setPosition(0,rand()%400);
+				box.setFillColor(Color(rand() % 256, rand() % 256, rand() % 256, 255));
+				boxhp = (rand()%50)+1;
+			}
+			if (boxhp < 0)
+			{
+				isalive = false;
+			}
+			
+			bhp.setString(to_string(boxhp));
+			bhp.setOrigin(bhp.getLocalBounds().width / 2, bhp.getLocalBounds().height / 2);
+			bhp.setPosition(box.getPosition().x + 50, box.getPosition().y + 50);
+			
+			
+			if ( score-tmp >= 100)
+			{
+				bv += 2;
+				tmp = score;
+			}
+
+
+			window.clear();
+
+
+
+			window.draw(cira);
+			window.draw(compass);
+			window.draw(Gnd);
+			window.draw(tscore);
+			window.draw(ststat);
+			window.draw(box);
+			window.draw(bhp);
+
+
+			window.display();
 
 		}
-
-		
-		
-
-		cira.update();
-		if (cira.p().x <= 0)
+		else
 		{
-			cira.setPosition(0, cira.getPosition().y);
-			cira.v.x *= -1;
+			Event event;
+			while (window.pollEvent(event))
+			{
+				// Close window: exit
+				if (event.type == Event::Closed)
+					window.close();
+				if (Keyboard::isKeyPressed(Keyboard::Escape))
+				{
+					isalive = true;
+					score = 0;
+					boxhp = 0;
+					ballstat = 1;
+					tmp = 0;
+					bv = 5;
+					switch (ballstat)
+					{
+					default:
+						break;
+					case 1:
+						cira.m = 1;
+						cira.setFillColor(Color(0x73d7d7ff));
+						compass.setFillColor(Color(0x73d7d7ff));
+						break;
+					case 2:
+						cira.m = 5;
+						cira.setFillColor(Color(0xFDFD97FF));
+						compass.setFillColor(Color(0xFDFD97FF));
+						break;
+
+					case 3:
+						cira.m = 10;
+						cira.setFillColor(Color(0xfa8072ff));
+						compass.setFillColor(Color(0xfa8072ff));
+						break;
+					}
+					cira.setRadius(10 * ballstat);
+					cira.ref = centery * 2 - (50 + 2 * cira.getRadius());
+					cira.setPosition(0, cira.ref);
+					sleep(milliseconds(200));
+					goto mainpage;
+
+
+				}
+				if (Keyboard::isKeyPressed(Keyboard::Space))
+				{
+					isalive = true;
+					score = 0;
+					boxhp = 0;
+					ballstat = 1;
+					tmp = 0;
+					bv = 5;
+					switch (ballstat)
+					{
+					default:
+						break;
+					case 1:
+						cira.m = 1;
+						cira.setFillColor(Color(0x73d7d7ff));
+						compass.setFillColor(Color(0x73d7d7ff));
+						break;
+					case 2:
+						cira.m = 5;
+						cira.setFillColor(Color(0xFDFD97FF));
+						compass.setFillColor(Color(0xFDFD97FF));
+						break;
+
+					case 3:
+						cira.m = 10;
+						cira.setFillColor(Color(0xfa8072ff));
+						compass.setFillColor(Color(0xfa8072ff));
+						break;
+					}
+					cira.setRadius(10 * ballstat);
+					cira.ref = centery * 2 - (50 + 2 * cira.getRadius());
+					cira.setPosition(0, cira.ref);
+					sleep(milliseconds(200));
+					goto mainpage;
+
+
+				}
+				
+				
+
+
+
+			}
+
+			if (score > best)
+			{
+				best = score;
+			}
+			
+			
+			result.setOrigin(result.getLocalBounds().width / 2, result.getLocalBounds().height / 2);
+			result.setPosition(centerx, 250);
+			result.setString("Score: " + to_string(score));
+
+			window.clear();
+			
+			window.draw(result);
+			window.display();
 		}
-		if (cira.p().x +cira.getRadius()*2>= 2*centerx)
-		{
-			cira.setPosition(2 * centerx- cira.getRadius() * 2, cira.getPosition().y);
-			cira.v.x *= -1;
-		}
-		if (cira.p().y <= 0)
-		{
-			cira.setPosition(cira.getPosition().x,0);
-			cira.v.y *= -1;
-		}
-		compass.setRotation(-angle);
-		compass.setSize(Vector2f(20+power*0.5,2));
-		compass.setPosition(cira.getPosition().x+cira.getRadius(), cira.getPosition().y + cira.getRadius());
-		
-		ststat.setString("Power: " + to_string((int)power) + " Angle: " + to_string((int)(angle)) + "   ");
-		tscore.setString("Score: " + to_string(score));
-
-		window.clear();
-
-
-		
-		window.draw(cira);
-		window.draw(compass);
-		window.draw(Gnd);
-		window.draw(tscore);
-		window.draw(ststat);
-		window.draw(box);
-
-
-		window.display();
 	}
 ////    END GAME PAGE LOOP      ///////////////////////
 
 }
 
+
+void updateSerial()
+{
+	while (sp->IsConnected())
+	{
+		readResult = sp->ReadData(incomingData, dataLength);
+		incomingData[readResult] = 0;
+
+
+		//				printf("%s", incomingData);
+
+		for (int i = 0; i < 244; i++)
+		{
+			if (incomingData[i] == '\n'&&incomingData[i + 11] == '\r')
+			{
+				cout << i << ". ";
+				for (int k = 1; k <= 10; k++)
+				{
+					cout << incomingData[i + k];
+
+				}
+
+				if (incomingData[i + 2] == '1')
+				{
+					shootcmd = true;
+					cout << "shoot";
+					
+				}
+				else
+				{
+					shootcmd = false;
+				}
+
+				if (incomingData[i + 3] == '1')
+				{
+					changecmd = true;
+					
+					
+				}
+				else
+				{
+					changecmd = false;
+				}
+				angle = (incomingData[i + 4] * 100 + incomingData[i + 5] * 10 + incomingData[i + 6]) - 53328 + 48000;
+				power = (incomingData[i + 7] * 1000 + incomingData[i + 8] * 100 + incomingData[i + 9] * 10 + incomingData[i + 10]) - 53328;
+
+
+				cout << endl;
+				cout << angle;
+				i += 245;
+			}
+			sleep(milliseconds(10));
+
+		}
+
+		//sleep(milliseconds(1000));
+
+	}
+
+}
